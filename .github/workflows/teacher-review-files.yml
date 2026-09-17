@@ -1,0 +1,194 @@
+name: CP1 — Teacher File Review Panel
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review-files:
+    if: ${{ github.repository == 'KLIS-CS/GitHub-Repository-Setup' && github.actor != 'github-actions[bot]' && !github.event.issue.pull_request && contains(github.event.issue.body, '### Practice Repository URL') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Build teacher review panel
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue = context.payload.issue;
+            const marker = '<!-- klis-cp1-teacher-files -->';
+
+            const repoUrlMatch = issue.body?.match(/### Practice Repository URL\s*\n+([^\n]+)/i);
+            const repositoryUrl = repoUrlMatch?.[1]?.trim() || '';
+
+            function parseRepoUrl(value) {
+              try {
+                const parsed = new URL((value || '').trim());
+                if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com') return null;
+                const parts = parsed.pathname.split('/').filter(Boolean);
+                if (parts.length < 2) return null;
+                return {
+                  owner: parts[0],
+                  repo: parts[1].replace(/\.git$/i, '')
+                };
+              } catch {
+                return null;
+              }
+            }
+
+            const parsed = parseRepoUrl(repositoryUrl);
+
+            async function publicJson(url) {
+              const r = await fetch(url, {
+                headers: {
+                  'Accept': 'application/vnd.github+json',
+                  'User-Agent': 'KLIS-CS-CP1-Teacher-Review'
+                }
+              });
+              if (r.status === 404) return null;
+              if (!r.ok) throw new Error(`GitHub API returned ${r.status} for ${url}`);
+              return await r.json();
+            }
+
+            async function publicText(url) {
+              const r = await fetch(url, {
+                headers: { 'User-Agent': 'KLIS-CS-CP1-Teacher-Review' }
+              });
+              if (r.status === 404) return null;
+              if (!r.ok) throw new Error(`Unable to read repository file (${r.status}).`);
+              return await r.text();
+            }
+
+            function escapeHtml(value) {
+              return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            }
+
+            function preview(value, max = 6000) {
+              if (value == null) return '_File not found._';
+              const clipped = value.length > max
+                ? `${value.slice(0, max)}\n\n… preview truncated — open the file link above for the complete file.`
+                : value;
+              return `<pre>${escapeHtml(clipped)}</pre>`;
+            }
+
+            let body;
+
+            if (!parsed) {
+              body = [
+                marker,
+                '## 🧑‍🏫 CP1 Teacher Review Files',
+                '',
+                'The submitted repository URL could not be parsed. Ask the student to provide a GitHub repository URL.'
+              ].join('\n');
+            } else {
+              const studentOwner = parsed.owner;
+              const studentRepo = parsed.repo;
+              const meta = await publicJson(`https://api.github.com/repos/${encodeURIComponent(studentOwner)}/${encodeURIComponent(studentRepo)}`);
+
+              if (!meta) {
+                body = [
+                  marker,
+                  '## 🧑‍🏫 CP1 Teacher Review Files',
+                  '',
+                  `Repository not found: ${repositoryUrl}`
+                ].join('\n');
+              } else if (meta.private) {
+                body = [
+                  marker,
+                  '## 🧑‍🏫 CP1 Teacher Review Files',
+                  '',
+                  'The submitted repository is **private**. CP1 requires a public repository so the grader and teacher can review the files.'
+                ].join('\n');
+              } else {
+                const branch = meta.default_branch || 'main';
+                const rawBranch = encodeURIComponent(branch);
+                const rawBase = `https://raw.githubusercontent.com/${encodeURIComponent(studentOwner)}/${encodeURIComponent(studentRepo)}/${rawBranch}`;
+                const blobBranch = branch.split('/').map(encodeURIComponent).join('/');
+                const repoBase = `https://github.com/${encodeURIComponent(studentOwner)}/${encodeURIComponent(studentRepo)}`;
+
+                const [readme, gitignore] = await Promise.all([
+                  publicText(`${rawBase}/README.md`),
+                  publicText(`${rawBase}/.gitignore`)
+                ]);
+
+                let license = null;
+                let licensePath = 'LICENSE';
+                for (const candidate of ['LICENSE', 'LICENSE.md', 'LICENSE.txt']) {
+                  const value = await publicText(`${rawBase}/${candidate}`);
+                  if (value !== null) {
+                    license = value;
+                    licensePath = candidate;
+                    break;
+                  }
+                }
+
+                body = [
+                  marker,
+                  '## 🧑‍🏫 CP1 Teacher Review Files',
+                  '',
+                  `**Student repository:** [${studentOwner}/${studentRepo}](${repoBase})  `,
+                  `**Default branch:** \`${branch}\``,
+                  '',
+                  'Open the student files directly:',
+                  '',
+                  `- [README.md](${repoBase}/blob/${blobBranch}/README.md)`,
+                  `- [.gitignore](${repoBase}/blob/${blobBranch}/.gitignore)`,
+                  license === null
+                    ? '- LICENSE / LICENSE.md / LICENSE.txt: _not found_'
+                    : `- [${licensePath}](${repoBase}/blob/${blobBranch}/${licensePath})`,
+                  '',
+                  '<details>',
+                  '<summary><strong>README.md preview</strong></summary>',
+                  '',
+                  preview(readme, 8000),
+                  '</details>',
+                  '',
+                  '<details>',
+                  '<summary><strong>.gitignore preview</strong></summary>',
+                  '',
+                  preview(gitignore, 5000),
+                  '</details>',
+                  '',
+                  '<details>',
+                  `<summary><strong>${licensePath} preview</strong></summary>`,
+                  '',
+                  preview(license, 8000),
+                  '</details>',
+                  '',
+                  'Use these files together with the student\'s written explanations in the submission Issue when entering `/manual-grade`.'
+                ].join('\n');
+              }
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issue.number,
+              per_page: 100
+            });
+
+            const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body
+              });
+            }

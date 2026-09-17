@@ -1,0 +1,91 @@
+name: CP1 Assessment Self-Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/**'
+
+permissions:
+  contents: read
+
+jobs:
+  assessment-self-test:
+    if: ${{ github.repository == 'KLIS-CS/GitHub-Repository-Setup' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate CP1 assessment structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_file() {
+            test -f "$1" || { echo "Missing required file: $1"; exit 1; }
+          }
+
+          require_text() {
+            local file="$1"
+            local text="$2"
+            grep -Fq "$text" "$file" || { echo "Missing contract text in $file: $text"; exit 1; }
+          }
+
+          require_file .github/README.md
+          require_file .github/admin/TEACHER-GRADING.md
+          require_file .github/ISSUE_TEMPLATE/cp1-submission.yml
+          require_file .github/ISSUE_TEMPLATE/config.yml
+          require_file .github/workflows/grade.yml
+          require_file .github/workflows/student-score.yml
+          require_file .github/workflows/teacher-review-files.yml
+          require_file .github/scripts/cp1-utils.js
+          require_file .github/tests/cp1-utils.test.js
+
+          require_text .github/README.md 'Copy Exercise'
+          require_text .github/README.md 'template_owner=KLIS-CS&template_name=GitHub-Repository-Setup'
+          require_text .github/README.md 'CP1 — Score'
+          require_text .github/README.md 'README.md'
+          require_text .github/README.md '.gitignore'
+          require_text .github/README.md 'LICENSE'
+
+          require_text .github/workflows/grade.yml "github.repository == 'KLIS-CS/GitHub-Repository-Setup'"
+          require_text .github/workflows/grade.yml "gradeBranch = 'grades'"
+          require_text .github/workflows/grade.yml '.cp1-grades/'
+          require_text .github/workflows/grade.yml '/manual-grade'
+
+          require_text .github/workflows/student-score.yml "github.repository != 'KLIS-CS/GitHub-Repository-Setup'"
+          require_text .github/workflows/student-score.yml 'CP1 — Score'
+          require_text .github/workflows/student-score.yml 'raw.githubusercontent.com/KLIS-CS/GitHub-Repository-Setup/grades'
+          require_text .github/workflows/student-score.yml 'workflow_dispatch'
+          require_text .github/workflows/student-score.yml 'schedule:'
+
+          require_text .github/workflows/teacher-review-files.yml "github.repository == 'KLIS-CS/GitHub-Repository-Setup'"
+          require_text .github/workflows/teacher-review-files.yml 'Teacher Review Files'
+
+          require_text .github/scripts/cp1-utils.js 'evaluateRepository'
+          require_text .github/scripts/cp1-utils.js "officialTemplate = 'klis-cs/github-repository-setup'"
+          require_text .github/scripts/cp1-utils.js 'mainIsDefault'
+
+          echo 'CP1 structure and workflow contracts are present.'
+
+      - name: Validate workflow YAML syntax
+        shell: bash
+        run: |
+          ruby -e "require 'psych'; Dir['.github/workflows/*.yml'].each { |f| Psych.parse_file(f) }"
+
+      - name: Run grader fixture tests
+        run: node .github/tests/cp1-utils.test.js
+
+      - name: Confirm one-repo architecture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -f README.md
+          test ! -f CP1-TASK.md
+          test ! -f TEACHER-GRADING.md
+          test ! -d tests
+          echo 'CP1 keeps student work at repository root and system/grading files under .github.'

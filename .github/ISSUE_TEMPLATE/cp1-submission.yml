@@ -1,0 +1,90 @@
+name: CP1 Submission — Repository Setup
+description: Submit your public CP1 repository for automatic and teacher review.
+title: "[CP1] Repository Setup Submission"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Checkpoint 1 — Repository Setup
+
+        This is the **mother-repository submission form**.
+
+        Complete your copied CP1 repository first, then submit it here. Your own repository will also contain an Issue named **CP1 — Score** that shows your automatic score and later synchronizes the teacher score entered here.
+
+        Required repository name:
+
+        `cp1-repository-setup-YOUR-GITHUB-USERNAME`
+
+        Start from the official **KLIS-CS CP1 Copy Exercise**, create the copy in your own account, keep it **Public**, and work directly on `main`.
+
+        CP1 does **not** use a feature branch or Pull Request.
+
+        Your finished repository must contain `README.md`, `.gitignore`, and `LICENSE` at the repository root. The teacher will see direct links and previews of all three files in this submission Issue.
+
+  - type: input
+    id: repository_url
+    attributes:
+      label: Practice Repository URL
+      description: Paste the full GitHub URL of your public CP1 repository. Paste the repository URL, not a README or file URL.
+      placeholder: https://github.com/YOUR-USERNAME/cp1-repository-setup-YOUR-USERNAME
+    validations:
+      required: true
+
+  - type: input
+    id: github_username
+    attributes:
+      label: GitHub Username
+      description: Enter the GitHub username that owns the CP1 repository.
+      placeholder: octocat
+    validations:
+      required: true
+
+  - type: textarea
+    id: readme_reason
+    attributes:
+      label: README Explanation
+      description: What is the purpose of a README, and what information did you include in yours?
+      placeholder: Explain in 2–4 sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: gitignore_reason
+    attributes:
+      label: .gitignore Explanation
+      description: Which files or folders did you ignore, and why should they not be committed?
+      placeholder: Explain in 2–4 sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: license_reason
+    attributes:
+      label: LICENSE Explanation
+      description: Which license did you choose, and what does that license communicate to other people who may use your code?
+      placeholder: Explain in 2–4 sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reflection
+    attributes:
+      label: Reflection
+      description: Which repository-setup decision required the most judgment, and why?
+      placeholder: Explain in 2–4 sentences.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: integrity
+    attributes:
+      label: Integrity Check
+      options:
+        - label: I used the official KLIS-CS CP1 Copy Exercise and did not fork another repository.
+          required: true
+        - label: I worked on main and did not create a feature branch or Pull Request for CP1.
+          required: true
+        - label: My finished README.md, .gitignore, and LICENSE are all visible on main.
+          required: true
+        - label: I did not include passwords, API keys, tokens, or other secrets in the repository.
+          required: true

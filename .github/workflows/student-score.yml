@@ -1,0 +1,141 @@
+name: CP1 — Student Score
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - '.gitignore'
+      - 'LICENSE'
+      - 'LICENSE.md'
+      - 'LICENSE.txt'
+      - '.github/workflows/student-score.yml'
+      - '.github/scripts/cp1-utils.js'
+  workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  score:
+    if: ${{ github.repository != 'KLIS-CS/GitHub-Repository-Setup' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Calculate automatic score and sync teacher score
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { evaluateRepository } = require('./.github/scripts/cp1-utils');
+            const { owner, repo } = context.repo;
+            const marker = '<!-- klis-cp1-local-score -->';
+
+            const read = path => fs.existsSync(path) ? fs.readFileSync(path, 'utf8') : '';
+            const readmePresent = fs.existsSync('README.md');
+            const gitignorePresent = fs.existsSync('.gitignore');
+            const licenseCandidates = ['LICENSE', 'LICENSE.md', 'LICENSE.txt'];
+            const licensePath = licenseCandidates.find(path => fs.existsSync(path)) || 'LICENSE';
+            const licensePresent = licenseCandidates.some(path => fs.existsSync(path));
+
+            const { data: meta } = await github.rest.repos.get({ owner, repo });
+
+            const result = evaluateRepository({
+              meta,
+              readme: read('README.md'),
+              gitignore: read('.gitignore'),
+              license: licensePresent ? read(licensePath) : '',
+              readmePresent,
+              gitignorePresent,
+              licensePresent,
+              licensePath,
+              student: owner
+            });
+
+            let teacher = null;
+            let grader = null;
+            let feedback = '';
+            let teacherUpdatedAt = null;
+
+            const gradeUrl = `https://raw.githubusercontent.com/KLIS-CS/GitHub-Repository-Setup/grades/.cp1-grades/${encodeURIComponent(owner.toLowerCase())}.json?ts=${Date.now()}`;
+            const gradeResponse = await fetch(gradeUrl, { headers: { 'User-Agent': 'KLIS-CS-CP1-Student-Score' } });
+            if (gradeResponse.ok) {
+              const grade = await gradeResponse.json();
+              if (Number.isInteger(grade.teacherScore)) teacher = grade.teacherScore;
+              grader = grade.grader || null;
+              feedback = grade.feedback || '';
+              teacherUpdatedAt = grade.updatedAt || null;
+            } else if (gradeResponse.status !== 404) {
+              core.warning(`Teacher grade sync returned HTTP ${gradeResponse.status}. Automatic score is still valid.`);
+            }
+
+            const total = result.automatic + (teacher ?? 0);
+            const rows = result.checks.map(([label, earned, max, detail]) =>
+              `| ${earned === max ? '✅' : earned ? '🟨' : '⬜'} ${label} | ${earned}/${max} | ${detail} |`
+            ).join('\n');
+
+            const status = result.automatic < 60
+              ? '🟡 **IN PROGRESS — update the required files on `main`.**'
+              : teacher === null
+                ? '🔵 **AUTOMATIC CHECKS PASSED — awaiting teacher review in the mother repository.**'
+                : `✅ **FINAL SCORE: ${total}/100**`;
+
+            const feedbackBlock = teacher === null
+              ? 'Teacher feedback will appear here after the manual grade is published.'
+              : feedback
+                ? `> ${feedback.replace(/\n/g, '\n> ')}`
+                : '> Teacher grade published. No written feedback was included.';
+
+            const body = `${marker}
+            # CP1 — Score
+
+            **Repository:** https://github.com/${owner}/${repo}  
+            **Automatic score:** ${result.automatic}/60  
+            **Teacher score:** ${teacher === null ? 'awaiting review' : `${teacher}/40${grader ? ` by @${grader}` : ''}`}  
+            **Current total:** ${total}/100  
+            **Final score:** ${teacher === null ? 'pending teacher review' : `${total}/100`}
+
+            | Check | Score | Evidence |
+            |---|---:|---|
+            ${rows}
+            | 🧑‍🏫 Teacher review | ${teacher === null ? '—/40' : `${teacher}/40`} | ${teacherUpdatedAt ? `synced ${teacherUpdatedAt}` : 'awaiting review'} |
+
+            ${status}
+
+            ## Teacher feedback
+
+            ${feedbackBlock}
+
+            ## Submission
+
+            When your three required files are ready, submit this repository in the mother repository:
+
+            https://github.com/KLIS-CS/GitHub-Repository-Setup/issues/new?template=cp1-submission.yml
+
+            After your teacher enters \`/manual-grade\` in the mother repository, this Score Issue refreshes automatically within about five minutes. You can also run **Actions → CP1 — Student Score → Run workflow** to refresh immediately.
+            `;
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'all', per_page: 100
+            });
+            const existing = issues.find(i => !i.pull_request && i.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: existing.number, state: 'open', title: 'CP1 — Score', body
+              });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: 'CP1 — Score', body });
+            }
+
+            await core.summary
+              .addHeading(`CP1: ${total}/100`)
+              .addRaw(`Automatic: ${result.automatic}/60\n`)
+              .addRaw(`Teacher: ${teacher === null ? 'awaiting review' : `${teacher}/40`}\n`)
+              .addRaw(`Final: ${teacher === null ? 'pending teacher review' : `${total}/100`}\n`)
+              .write();
